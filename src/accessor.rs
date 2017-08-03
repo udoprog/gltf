@@ -30,7 +30,7 @@ pub struct Accessor<'a> {
 
 /// An `Iterator` that iterates over the members of an accessor.
 #[derive(Clone, Debug)]
-pub struct Iter<T> {
+pub struct Iter<'a, T> {
     /// Number of iterations left.
     count: usize,
 
@@ -43,13 +43,20 @@ pub struct Iter<T> {
     /// The buffer view data we're iterating over.
     data: import::Data,
 
+    /// Consumes the iterator lifetime, which is bound to the import data.
+    _consume_type: marker::PhantomData<T>,
+    
     /// Consumes the data type we're returning at each iteration.
-    _mk: marker::PhantomData<T>,
+    _consume_lifetime: marker::PhantomData<&'a ()>,
 }
 
 impl<'a> Accessor<'a> {
     /// Constructs an `Accessor`.
-    pub fn new(gltf: &'a Gltf, index: usize, json: &'a json::accessor::Accessor) -> Self {
+    pub fn new(
+        gltf: &'a Gltf,
+        index: usize,
+        json: &'a json::accessor::Accessor,
+    ) -> Self {
         Self {
             gltf: gltf,
             index: index,
@@ -63,8 +70,7 @@ impl<'a> Accessor<'a> {
     }
     
     /// Returns the size of each component that this accessor describes.
-    #[allow(dead_code)]
-    fn size(&self) -> usize {
+    pub fn size(&self) -> usize {
         self.data_type().size() * self.dimensions().multiplicity()
     }
 
@@ -77,7 +83,8 @@ impl<'a> Accessor<'a> {
     /// # Panics
     ///
     /// If the size of an individual `T` does not match the accessor component size.
-    pub unsafe fn iter<T>(&self) -> Iter<T> {
+    pub unsafe fn iter<T>(&self) -> Iter<'a, T> {
+        assert!(self.size() == mem::size_of::<T>());
         let count = self.count();
         let offset = self.offset() as isize;
         let stride = self.view().stride().unwrap_or(mem::size_of::<T>());
@@ -88,7 +95,8 @@ impl<'a> Accessor<'a> {
             ptr: ptr,
             stride: stride,
             data: data,
-            _mk: marker::PhantomData,
+            _consume_type: marker::PhantomData,
+            _consume_lifetime: marker::PhantomData,
         }
     }
 
@@ -165,8 +173,8 @@ impl<'a> Accessor<'a> {
     }
 }
 
-impl<T> ExactSizeIterator for Iter<T> {}
-impl<T> Iterator for Iter<T> {
+impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
+impl<'a, T> Iterator for Iter<'a, T> {
     type Item = T;
     fn next(&mut self) -> Option<Self::Item> {
         if self.count > 0 {

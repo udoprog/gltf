@@ -71,60 +71,60 @@ impl<T: Copy + Normalized> Normalized for [T; 4] {
 
 /// XYZ vertex normals of type `[f32; 3]`.
 #[derive(Clone, Debug)]
-pub struct Normals(Iter<[f32; 3]>);
+pub struct Normals<'a>(Iter<'a, [f32; 3]>);
 
 /// XYZ vertex normal displacements of type `[f32; 3]`.
 #[derive(Clone, Debug)]
-pub struct NormalDisplacements(Iter<[f32; 3]>);
+pub struct NormalDisplacements<'a>(Iter<'a, [f32; 3]>);
 
 /// XYZ vertex positions of type `[f32; 3]`.
 #[derive(Clone, Debug)]
-pub struct Positions(Iter<[f32; 3]>);
+pub struct Positions<'a>(Iter<'a, [f32; 3]>);
 
 /// XYZ vertex position displacements of type `[f32; 3]`.
 #[derive(Clone, Debug)]
-pub struct PositionDisplacements(Iter<[f32; 3]>);
+pub struct PositionDisplacements<'a>(Iter<'a, [f32; 3]>);
 
 /// XYZW vertex tangents of type `[f32; 4]` where the `w` component is a
 /// sign value (-1 or +1) indicating the handedness of the tangent basis.
 #[derive(Clone, Debug)]
-pub struct Tangents(Iter<[f32; 4]>);
+pub struct Tangents<'a>(Iter<'a, [f32; 4]>);
 
 /// XYZ vertex tangent displacements of type `[f32; 3]`.
 #[derive(Clone, Debug)]
-pub struct TangentDisplacements(Iter<[f32; 3]>);
+pub struct TangentDisplacements<'a>(Iter<'a, [f32; 3]>);
 
 /// Vertex colors.
 #[derive(Clone, Debug)]
-pub enum Colors {
+pub enum Colors<'a> {
     /// RGB vertex color of type `[u8; 3]>`.
-    RgbU8(Iter<[u8; 3]>),
+    RgbU8(Iter<'a, [u8; 3]>),
 
     /// RGBA vertex color of type `[u8; 4]>`.
-    RgbaU8(Iter<[u8; 4]>),
+    RgbaU8(Iter<'a, [u8; 4]>),
 
     /// RGB vertex color of type `[u16; 3]>`.
-    RgbU16(Iter<[u16; 3]>),
+    RgbU16(Iter<'a, [u16; 3]>),
 
     /// RGBA vertex color of type `[u16; 4]>`.
-    RgbaU16(Iter<[u16; 4]>),
+    RgbaU16(Iter<'a, [u16; 4]>),
 
     /// RGB vertex color of type `[f32; 3]`.
-    RgbF32(Iter<[f32; 3]>),
+    RgbF32(Iter<'a, [f32; 3]>),
 
     /// RGBA vertex color of type `[f32; 4]`.
-    RgbaF32(Iter<[f32; 4]>),
+    RgbaF32(Iter<'a, [f32; 4]>),
 }
 
 /// Index data.
 #[derive(Clone, Debug)]
-pub enum Indices {
+pub enum Indices<'a> {
     /// Index data of type U8
-    U8(Iter<u8>),
+    U8(Iter<'a, u8>),
     /// Index data of type U16
-    U16(Iter<u16>),
+    U16(Iter<'a, u16>),
     /// Index data of type U32
-    U32(Iter<u32>),
+    U32(Iter<'a, u32>),
 }
 
 /// Defines the vertex ordering of a `Primitive`.
@@ -194,17 +194,17 @@ impl<'a, I> Iterator for Ordered<'a, I>
 
 /// Intermediate type for data that is either provided or generated.
 #[derive(Clone, Debug)]
-pub enum Maybe<T> {
+pub enum Maybe<'a, T> {
     /// The data was provided (and hence borrowed from an `Accessor`.)
-    Provided(Iter<T>),
+    Provided(Iter<'a, T>),
 
     /// The data was generated (and hence owned by the `Primitive`.)
     Generated(Vec<T>),
 }
 
-impl<T> Maybe<T> {
+impl<'a, T> Maybe<'a, T> {
     /// Returns an `Iterator` that visits every item of the `Maybe`.
-    pub fn iter<'a>(&'a self) -> MaybeIter<'a, T> {
+    pub fn iter(&'a self) -> MaybeIter<'a, T> {
         MaybeIter {
             maybe: self,
             index: 0,
@@ -216,7 +216,7 @@ impl<T> Maybe<T> {
 #[derive(Clone, Debug)]
 pub struct MaybeIter<'a, T: 'a> {
     /// The items we're iterating over.
-    maybe: &'a Maybe<T>,
+    maybe: &'a Maybe<'a, T>,
 
     /// The index of the next iteration.
     index: usize,
@@ -236,9 +236,9 @@ impl<'a, T: Copy> Iterator for MaybeIter<'a, T> {
 
 /// An `Iterator` that coerces index data to `u32`s.
 #[derive(Clone, Debug)]
-pub struct IndicesU32(Indices);
+pub struct IndicesU32<'a>(Indices<'a>);
 
-impl Iterator for IndicesU32 {
+impl<'a> Iterator for IndicesU32<'a> {
     type Item = u32;
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.0 {
@@ -253,36 +253,36 @@ impl Iterator for IndicesU32 {
 /// Refer to the documentation on morph targets and skins for more
 /// information.
 #[derive(Clone, Debug)]
-pub enum Joints {
+pub enum Joints<'a> {
     /// Joints of type `[u8; 4]`.
     /// Refer to the documentation on morph targets and skins for more
     /// information.
-    U8(Iter<[u8; 4]>),
+    U8(Iter<'a, [u8; 4]>),
     
     /// Joints of type `[u16; 4]`.
     /// Refer to the documentation on morph targets and skins for more
     /// information.
-    U16(Iter<[u16; 4]>),
+    U16(Iter<'a, [u16; 4]>),
 }
 
 /// UV texture co-ordinates.
 #[derive(Clone, Debug)]
-pub enum TexCoords {
+pub enum TexCoords<'a> {
     /// UV texture co-ordinates of type `[f32; 2]`.
-    F32(Iter<[f32; 2]>),
+    F32(Iter<'a, [f32; 2]>),
 
     /// UV texture co-ordinates of type `[u8; 2]>`.
-    U8(Iter<[u8; 2]>),
+    U8(Iter<'a, [u8; 2]>),
 
     /// UV texture co-ordinates of type `[u16; 2]>`.
-    U16(Iter<[u16; 2]>),
+    U16(Iter<'a, [u16; 2]>),
 }
 
 /// An `Iterator` that coerces texture co-ordinates to `f32`s.
 #[derive(Clone, Debug)]
-pub struct TexCoordsF32(TexCoords);
+pub struct TexCoordsF32<'a>(TexCoords<'a>);
 
-impl Iterator for TexCoordsF32 {
+impl<'a> Iterator for TexCoordsF32<'a> {
     type Item = [f32; 2];
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.0 {
@@ -296,22 +296,22 @@ impl Iterator for TexCoordsF32 {
 /// Weights,
 /// Refer to the documentation on morph targets for more information.
 #[derive(Clone, Debug)]
-pub enum Weights {
+pub enum Weights<'a> {
     /// Weights of type `[f32; 4]`.
-    F32(Iter<[f32; 4]>),
+    F32(Iter<'a, [f32; 4]>),
 
     /// Weights of type `[u8; 4]`.
-    U8(Iter<[u8; 4]>),
+    U8(Iter<'a, [u8; 4]>),
 
     /// Weights of type `[u16; 4]`.
-    U16(Iter<[u16; 4]>),
+    U16(Iter<'a, [u16; 4]>),
 }
 
 /// Vertex attribute data.
 #[derive(Clone, Debug)]
-pub enum Attribute {
+pub enum Attribute<'a> {
     /// Vertex colors.
-    Colors(u32, Colors),
+    Colors(u32, Colors<'a>),
 
     // TODO: Handle extras (needs to be handled elsewhere to avoid taking lifetime)
     // #[cfg(feature = "extras")]
@@ -320,37 +320,37 @@ pub enum Attribute {
     /// Vertex joints.
     /// Refer to the documentation on morph targets and skins for more
     /// information.
-    Joints(u32, Joints),
+    Joints(u32, Joints<'a>),
 
     /// XYZ vertex positions of type `[f32; 3]`.
-    Positions(Positions),
+    Positions(Positions<'a>),
 
     /// XYZ vertex normals of type `[f32; 3]`.
-    Normals(Normals),
+    Normals(Normals<'a>),
 
     /// XYZW vertex tangents of type `[f32; 4]` where the `w` component is a
     /// sign value (-1 or +1) indicating the handedness of the tangent basis.
-    Tangents(Tangents),
+    Tangents(Tangents<'a>),
 
     /// UV texture co-ordinates.
-    TexCoords(u32, TexCoords),
+    TexCoords(u32, TexCoords<'a>),
 
     /// Weights.
     /// Refer to the documentation on morph targets for more information.
-    Weights(u32, Weights),
+    Weights(u32, Weights<'a>),
 }
 
 /// Morph targets.
 #[derive(Clone, Debug)]
-pub struct MorphTarget {
+pub struct MorphTarget<'a> {
     /// XYZ vertex position displacements.
-    positions: Option<PositionDisplacements>,
+    positions: Option<PositionDisplacements<'a>>,
 
     /// XYZ vertex normal displacements.
-    normals: Option<NormalDisplacements>,
+    normals: Option<NormalDisplacements<'a>>,
 
     /// XYZ vertex tangent displacements.
-    tangents: Option<TangentDisplacements>,
+    tangents: Option<TangentDisplacements<'a>>,
 }
 
 /// A set of primitives to be rendered.  A node can contain one or more meshes and
@@ -391,7 +391,7 @@ pub struct Primitives<'a>  {
 #[derive(Clone, Debug)]
 pub struct Positioning<'a> {
     /// XYZ vertex positions.
-    pub positions: Ordered<'a, Positions>,
+    pub positions: Ordered<'a, Positions<'a>>,
 
     /// XYZ vertex normals.
     pub normals: Ordered<'a, MaybeIter<'a, [f32; 3]>>,
@@ -399,12 +399,12 @@ pub struct Positioning<'a> {
 
 /// Intermediate type for positioning properties.
 #[derive(Clone, Debug)]
-struct PositioningImpl {
+struct PositioningImpl<'a> {
     /// XYZ vertex positions.
-    positions: Positions,
+    positions: Positions<'a>,
 
     /// XYZ vertex normals.
-    normals: Maybe<[f32; 3]>,
+    normals: Maybe<'a, [f32; 3]>,
 }
 
 /// Texturing properties.
@@ -414,57 +414,57 @@ pub struct Texturing<'a> {
     pub tangents: MaybeIter<'a, [f32; 4]>,
 
     /// First set of UV texture co-ordinates.
-    pub tex_coords_0: Ordered<'a, TexCoordsF32>,
+    pub tex_coords_0: Ordered<'a, TexCoordsF32<'a>>,
 
     /// Second set of UV texture co-ordinates.
-    pub tex_coords_1: Option<Ordered<'a, TexCoordsF32>>,
+    pub tex_coords_1: Option<Ordered<'a, TexCoordsF32<'a>>>,
 }
 
 /// Intermediate type for texturing properties.
 #[derive(Clone, Debug)]
-struct TexturingImpl {
+struct TexturingImpl<'a> {
     /// XYZW vertex tangents, where W is the sign component.
-    pub tangents: Maybe<[f32; 4]>,
+    pub tangents: Maybe<'a, [f32; 4]>,
 
     /// First set of UV texture co-ordinates.
-    pub tex_coords_0: TexCoordsF32,
+    pub tex_coords_0: TexCoordsF32<'a>,
 
     /// Second set of UV texture co-ordinates.
-    pub tex_coords_1: Option<TexCoordsF32>,
+    pub tex_coords_1: Option<TexCoordsF32<'a>>,
 }
 
 /// Vertex coloring.
 #[derive(Clone, Debug)]
 pub struct Coloring<'a> {
     /// RGB(A) vertex colors.
-    pub colors_0: Ordered<'a, Colors>,
+    pub colors_0: Ordered<'a, Colors<'a>>,
 }
 
 /// Intermediate type for vertex coloring properties.
 #[derive(Clone, Debug)]
-struct ColoringImpl {
+struct ColoringImpl<'a> {
     /// RGB(A) vertex colors.
-    pub colors_0: Colors,
+    pub colors_0: Colors<'a>,
 }
 
 /// Vertex skinning properties.
 #[derive(Clone, Debug)]
 pub struct Skinning<'a> {
     /// Indices of nodes that form the skin joints.
-    pub joints_0: Ordered<'a, Joints>,
+    pub joints_0: Ordered<'a, Joints<'a>>,
 
     /// Weights to be applied at each joint.
-    pub weights_0: Ordered<'a, Weights>,
+    pub weights_0: Ordered<'a, Weights<'a>>,
 }
 
 /// Intermediate type for vertex skinning properties.
 #[derive(Clone, Debug)]
-struct SkinningImpl {
+struct SkinningImpl<'a> {
     /// Indices of nodes that form the skin joints.
-    pub joints_0: Joints,
+    pub joints_0: Joints<'a>,
 
     /// Weights to be applied at each joint.
-    pub weights_0: Weights,
+    pub weights_0: Weights<'a>,
 }
 
 /// Geometry to be rendered with the given material.
@@ -477,16 +477,16 @@ pub struct Primitive<'a> {
     order: Order<'static>,
 
     /// `POSITION` and `NORMAL`.
-    positioning: Option<PositioningImpl>,
+    positioning: Option<PositioningImpl<'a>>,
 
     /// `TANGENT`, `TEXCOORD_0`, and `TEXCOORD_1`.
-    texturing: Option<TexturingImpl>,
+    texturing: Option<TexturingImpl<'a>>,
 
     /// `COLOR_0`.
-    coloring: Option<ColoringImpl>,
+    coloring: Option<ColoringImpl<'a>>,
 
     /// `JOINTS_0` and `WEIGHTS_0`.
-    skinning: Option<SkinningImpl>,
+    skinning: Option<SkinningImpl<'a>>,
 }
 
 /// Geometry to be rendered with the given material.
@@ -697,37 +697,37 @@ impl<'a> PrimitiveImpl<'a> {
     }
     
     /// Returns the vertex colors of the given set.
-    pub fn colors(&self, set: u32) -> Option<Colors> {
+    pub fn colors(&self, set: u32) -> Option<Colors<'a>> {
         self.find_accessor_with_semantic(Semantic::Colors(set))
             .map(|accessor| Colors::from_accessor(accessor))
     }
 
     /// Returns the vertex texture co-ordinates of the given set.
-    pub fn tex_coords(&self, set: u32) -> Option<TexCoords> {
+    pub fn tex_coords(&self, set: u32) -> Option<TexCoords<'a>> {
         self.find_accessor_with_semantic(Semantic::TexCoords(set))
             .map(|accessor| TexCoords::from_accessor(accessor))
     }
 
     /// Returns the vertex texture co-ordinates of the given set, coerced into `f32`
     /// values.
-    pub fn tex_coords_f32(&self, set: u32) -> Option<TexCoordsF32> {
+    pub fn tex_coords_f32(&self, set: u32) -> Option<TexCoordsF32<'a>> {
         self.tex_coords(set).map(|iter| TexCoordsF32(iter))
     }
     
     /// Returns the joint indices of the given set.
-    pub fn joints(&self, set: u32) -> Option<Joints> {
+    pub fn joints(&self, set: u32) -> Option<Joints<'a>> {
         self.find_accessor_with_semantic(Semantic::Joints(set))
             .map(|accessor| Joints::from_accessor(accessor))
     }
     
     /// Returns the joint weights of the given set.
-    pub fn weights(&self, set: u32) -> Option<Weights> {
+    pub fn weights(&self, set: u32) -> Option<Weights<'a>> {
         self.find_accessor_with_semantic(Semantic::Weights(set))
             .map(|accessor| Weights::from_accessor(accessor))
     }
 
     /// Returns the primitive indices.
-    pub fn indices(&self) -> Option<Indices> {
+    pub fn indices(&self) -> Option<Indices<'a>> {
         self.json.indices.as_ref().map(|index| {
             let accessor = self.mesh.gltf.accessors().nth(index.value()).unwrap();
             Indices::from_accessor(accessor)
@@ -736,12 +736,12 @@ impl<'a> PrimitiveImpl<'a> {
 
     /// Returns the vertex texture co-ordinates of the given set, coerced into `f32`
     /// values.
-    pub fn indices_u32(&self) -> Option<IndicesU32> {
+    pub fn indices_u32(&self) -> Option<IndicesU32<'a>> {
         self.indices().map(|iter| IndicesU32(iter))
     }
 
     /// Returns the primitive positions.
-    pub fn positions(&self) -> Option<Positions> {
+    pub fn positions(&self) -> Option<Positions<'a>> {
         self.find_accessor_with_semantic(Semantic::Positions)
             .map(|accessor| unsafe {
                 Positions(accessor.iter())
@@ -749,7 +749,7 @@ impl<'a> PrimitiveImpl<'a> {
     }
 
     /// Returns the primitive normals.
-    pub fn normals(&self) -> Option<Normals> {
+    pub fn normals(&self) -> Option<Normals<'a>> {
         self.find_accessor_with_semantic(Semantic::Normals)
             .map(|accessor| unsafe {
                 Normals(accessor.iter())
@@ -757,7 +757,7 @@ impl<'a> PrimitiveImpl<'a> {
     }
 
     /// Returns the primitive tangents.
-    pub fn tangents(&self) -> Option<Tangents> {
+    pub fn tangents(&self) -> Option<Tangents<'a>> {
         self.find_accessor_with_semantic(Semantic::Tangents)
             .map(|accessor| unsafe {
                 Tangents(accessor.iter())
@@ -802,8 +802,8 @@ impl<'a> PrimitiveImpl<'a> {
     }
 }
 
-impl Colors {
-    fn from_accessor<'a>(accessor: Accessor<'a>) -> Colors {
+impl<'a> Colors<'a> {
+    fn from_accessor(accessor: Accessor<'a>) -> Colors<'a> {
         unsafe {
             match (accessor.dimensions(), accessor.data_type()) {
                 (Dimensions::Vec3, DataType::U8) => {
@@ -830,8 +830,8 @@ impl Colors {
     }
 }
 
-impl TexCoords {
-    fn from_accessor<'a>(accessor: Accessor<'a>) -> TexCoords {
+impl<'a> TexCoords<'a> {
+    fn from_accessor(accessor: Accessor<'a>) -> TexCoords<'a> {
         unsafe {
             match accessor.data_type() {
                 DataType::U8 => TexCoords::U8(accessor.iter()),
@@ -843,8 +843,8 @@ impl TexCoords {
     }
 }
 
-impl Indices {
-    fn from_accessor<'a>(accessor: Accessor) -> Indices {
+impl<'a> Indices<'a> {
+    fn from_accessor(accessor: Accessor<'a>) -> Indices<'a> {
         unsafe {
             match accessor.data_type() {
                 DataType::U8 => Indices::U8(accessor.iter()),
@@ -856,8 +856,8 @@ impl Indices {
     }
 }
 
-impl Joints {
-    fn from_accessor<'a>(accessor: Accessor<'a>) -> Joints {
+impl<'a> Joints<'a> {
+    fn from_accessor(accessor: Accessor<'a>) -> Joints<'a> {
         unsafe {
             match accessor.data_type() {
                 DataType::U8 => Joints::U8(accessor.iter()),
@@ -868,8 +868,8 @@ impl Joints {
     }
 }
 
-impl Weights {
-    fn from_accessor<'a>(accessor: Accessor<'a>) -> Weights {
+impl<'a> Weights<'a> {
+    fn from_accessor(accessor: Accessor<'a>) -> Weights<'a> {
         unsafe {
             match accessor.data_type() {
                 DataType::U8 => Weights::U8(accessor.iter()),
@@ -881,42 +881,42 @@ impl Weights {
     }
 }
 
-impl Iterator for Positions {
+impl<'a> Iterator for Positions<'a> {
     type Item = [f32; 3];
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
 }
 
-impl Iterator for PositionDisplacements {
+impl<'a> Iterator for PositionDisplacements<'a> {
     type Item = [f32; 3];
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
 }
 
-impl Iterator for Normals {
+impl<'a> Iterator for Normals<'a> {
     type Item = [f32; 3];
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
 }
  
-impl Iterator for NormalDisplacements {
+impl<'a> Iterator for NormalDisplacements<'a> {
     type Item = [f32; 3];
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
 }
 
-impl Iterator for Tangents {
+impl<'a> Iterator for Tangents<'a> {
     type Item = [f32; 4];
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
 }
 
-impl Iterator for TangentDisplacements {
+impl<'a> Iterator for TangentDisplacements<'a> {
     type Item = [f32; 3];
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()

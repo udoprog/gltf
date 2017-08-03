@@ -27,7 +27,7 @@ pub struct Skin<'a> {
 
 /// An `Iterator` that visits the inverse bind matrices of a `Skin`.
 #[derive(Debug)]
-pub struct InverseBindMatrices(accessor::Iter<[[f32; 4]; 4]>);
+pub struct InverseBindMatrices<'a>(accessor::Iter<'a, [[f32; 4]; 4]>);
 
 /// An `Iterator` that visits the joints of a `Skin`.
 #[derive(Clone, Debug)]
@@ -75,7 +75,7 @@ impl<'a> Skin<'a> {
     /// The index of the accessor containing the 4x4 inverse-bind matrices.  When
     /// `None`,each matrix is assumed to be the 4x4 identity matrix which implies
     /// that the inverse-bind matrices were pre-applied.
-    pub fn inverse_bind_matrices(&self) -> Option<InverseBindMatrices> {
+    pub fn inverse_bind_matrices(&self) -> Option<InverseBindMatrices<'a>> {
         self.json.inverse_bind_matrices.as_ref().map(|index| {
             let accessor = self.gltf.accessors().nth(index.value()).unwrap();
             unsafe {
@@ -109,7 +109,7 @@ impl<'a> Skin<'a> {
     }
 }
 
-impl Iterator for InverseBindMatrices  {
+impl<'a> Iterator for InverseBindMatrices<'a>  {
     type Item = [[f32; 4]; 4];
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
