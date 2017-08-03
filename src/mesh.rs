@@ -137,6 +137,17 @@ enum Order<'a> {
     Custom(Cow<'a, [u32]>),
 }
 
+impl Order<'static> {
+    /// Returns a borrowed version of this `Order`.
+    pub fn borrow<'a>(&'a self) -> Order<'a> {
+        use std::borrow::Borrow;
+        match *self {
+            Order::Regular => Order::Regular,
+            Order::Custom(ref owned) => Order::Custom(Cow::from(owned.borrow())),
+        }
+    }
+}
+
 /// An `Iterator` that traverses another iterator with the given `Order`.
 #[derive(Clone, Debug)]
 pub struct Ordered<'a, I> {
@@ -148,6 +159,17 @@ pub struct Ordered<'a, I> {
 
     /// The internal iterator to yield items from.
     iter: I,
+}
+
+impl<'a, I> Ordered<'a, I> {
+    /// Constructs an `Ordered` iterator adaptor.
+    fn new(order: Order<'a>, iter: I) -> Self {
+        Self {
+            order,
+            iter,
+            order_index: 0,
+        }
+    }
 }
 
 impl<'a, I> Iterator for Ordered<'a, I>
@@ -178,6 +200,38 @@ pub enum Maybe<T> {
 
     /// The data was generated (and hence owned by the `Primitive`.)
     Generated(Vec<T>),
+}
+
+impl<T> Maybe<T> {
+    /// Returns an `Iterator` that visits every item of the `Maybe`.
+    pub fn iter<'a>(&'a self) -> MaybeIter<'a, T> {
+        MaybeIter {
+            maybe: self,
+            index: 0,
+        }
+    }
+}
+
+/// An `Iterator` that visits every item of a `Maybe`.
+#[derive(Clone, Debug)]
+pub struct MaybeIter<'a, T: 'a> {
+    /// The items we're iterating over.
+    maybe: &'a Maybe<T>,
+
+    /// The index of the next iteration.
+    index: usize,
+}
+
+impl<'a, T: Copy> Iterator for MaybeIter<'a, T> {
+    type Item = T;
+    fn next(&mut self) -> Option<Self::Item> {
+        let index = self.index;
+        self.index += 1;
+        match *self.maybe {
+            Maybe::Provided(ref iter) => iter.clone().nth(self.index),
+            Maybe::Generated(ref vec) => vec.get(self.index).cloned(),
+        }
+    }
 }
 
 /// An `Iterator` that coerces index data to `u32`s.
@@ -340,7 +394,7 @@ pub struct Positioning<'a> {
     pub positions: Ordered<'a, Positions>,
 
     /// XYZ vertex normals.
-    pub normals: Ordered<'a, Normals>,
+    pub normals: Ordered<'a, MaybeIter<'a, [f32; 3]>>,
 }
 
 /// Intermediate type for positioning properties.
@@ -357,7 +411,7 @@ struct PositioningImpl {
 #[derive(Clone, Debug)]
 pub struct Texturing<'a> {
     /// XYZW vertex tangents, where W is the sign component.
-    pub tangents: Tangents,
+    pub tangents: MaybeIter<'a, [f32; 4]>,
 
     /// First set of UV texture co-ordinates.
     pub tex_coords_0: Ordered<'a, TexCoordsF32>,
@@ -522,11 +576,6 @@ impl<'a> Primitive<'a> {
     /// * Where `JOINTS_0` and `WEIGHTS_0` are provided, the primitive will contain
     ///   `Some(Skinning)`.
     pub fn new(inner: PrimitiveImpl<'a>) -> Self {
-        let tex_coords_0 = inner.find_accessor_with_semantic(Semantic::TexCoords(0));
-        let colors_0 = inner.find_accessor_with_semantic(Semantic::Colors(0));
-        let joints_0 = inner.find_accessor_with_semantic(Semantic::Joints(0));
-        let weights_0 = inner.find_accessor_with_semantic(Semantic::Weights(0));
-
         let positioning = match (inner.positions(), inner.normals()) {
              (Some(positions), Some(normals)) => {
                  Some(PositioningImpl {
@@ -569,11 +618,7 @@ impl<'a> Primitive<'a> {
             _ => (Order::Regular, None),
         };
 
-        let coloring = colors_0.map(|_| {
-            ColoringImpl {
-                colors_0: inner.colors(0).unwrap(),
-            }
-        });
+        let coloring = inner.colors(0).map(|colors_0| ColoringImpl { colors_0 });
 
         let skinning = match (inner.joints(0), inner.weights(0)) {
             (Some(joints_0), Some(weights_0)) => {
@@ -596,13 +641,39 @@ impl<'a> Primitive<'a> {
     }
 
     /// Splits the primitive into its four major properties.
-    pub fn split(mut self) -> (
+    pub fn split(&'a self) -> (
         Option<Positioning<'a>>,
         Option<Texturing<'a>>,
         Option<Coloring<'a>>,
         Option<Skinning<'a>>,
     ) {
-        unimplemented!()
+        let order = self.order.borrow();
+        let positioning = self.positioning
+            .as_ref()
+            .map(|p| {
+                Positioning {
+                    positions: Ordered::new(order.clone(), p.positions.clone()),
+                    normals: Ordered::new(order.clone(), p.normals.iter()),
+                }
+            });
+        let texturing = self.texturing
+            .as_ref()
+            .map(|ref t| {
+                Texturing {
+                    tangents: {
+                        t.tangents.iter()
+                    },
+                    tex_coords_0: {
+                        Ordered::new(order.clone(), t.tex_coords_0.clone())
+                    },
+                    tex_coords_1: t.tex_coords_1.as_ref().map(|iter| {
+                        Ordered::new(order.clone(), iter.clone())
+                    }),
+                }
+            });
+                 let coloring = unimplemented!();
+                 let skinning = unimplemented!();
+        (positioning, texturing, coloring, skinning)
     }
 }
 
