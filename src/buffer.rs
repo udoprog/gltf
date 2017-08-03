@@ -9,11 +9,12 @@
 
 use {extensions, json};
 
-use {Data, Gltf};
+use Gltf;
 
 pub use json::buffer::Target;
 
 /// A buffer points to binary data representing geometry, animations, or skins.
+#[derive(Clone, Debug)]
 pub struct Buffer<'a> {
     /// The parent `Gltf` struct.
     gltf: &'a Gltf,
@@ -23,9 +24,13 @@ pub struct Buffer<'a> {
 
     /// The corresponding JSON struct.
     json: &'a json::buffer::Buffer,
+
+    /// The buffer data.
+    data: &'a [u8],
 }
 
 /// A view into a buffer generally representing a subset of the buffer.
+#[derive(Clone, Debug)]
 pub struct View<'a> {
     /// The parent `Gltf` struct.
     gltf: &'a Gltf,
@@ -35,6 +40,9 @@ pub struct View<'a> {
 
     /// The corresponding JSON struct.
     json: &'a json::buffer::View,
+
+    /// The parent buffer.
+    parent: Buffer<'a>,
 }
 
 impl<'a> Buffer<'a> {
@@ -43,11 +51,13 @@ impl<'a> Buffer<'a> {
         gltf: &'a Gltf,
         index: usize,
         json: &'a json::buffer::Buffer,
+        data: &'a [u8],
     ) -> Self {
         Self {
-            gltf: gltf,
-            index: index,
-            json: json,
+            gltf,
+            index,
+            json,
+            data,
         }
     }
 
@@ -67,8 +77,8 @@ impl<'a> Buffer<'a> {
     }
 
     /// The buffer data.
-    pub fn data(&self) -> Data {
-        self.gltf.buffer_data(self.index())
+    pub fn data(&'a self) -> &'a [u8] {
+        self.data
     }
 
     /// Optional user-defined name for this object.
@@ -97,11 +107,13 @@ impl<'a> View<'a> {
         gltf: &'a Gltf,
         index: usize,
         json: &'a json::buffer::View,
+        parent: Buffer<'a>,
     ) -> Self {
         Self {
-            gltf: gltf,
-            index: index,
-            json: json,
+            gltf,
+            index,
+            json,
+            parent,
         }
     }
 
@@ -116,8 +128,8 @@ impl<'a> View<'a> {
     }
 
     /// Returns the parent `Buffer`.
-    pub fn buffer(&self) -> Buffer<'a> {
-        self.gltf.buffers().nth(self.json.buffer.value()).unwrap()
+    pub fn parent(&self) -> Buffer<'a> {
+        self.parent.clone()
     }
 
     /// Returns the length of the buffer view in bytes.
@@ -137,8 +149,10 @@ impl<'a> View<'a> {
     }
 
     /// Returns the buffer view data.
-    pub fn data(&self) -> Data {
-        self.buffer().data().subview(self.offset(), self.length())
+    pub fn data(&'a self) -> &'a [u8] {
+        let begin = self.offset();
+        let end = begin + self.length();
+        &self.parent.data()[begin..end]
     }
 
     /// Optional user-defined name for this object.

@@ -228,8 +228,8 @@ impl<'a, T: Copy> Iterator for MaybeIter<'a, T> {
         let index = self.index;
         self.index += 1;
         match *self.maybe {
-            Maybe::Provided(ref iter) => iter.clone().nth(self.index),
-            Maybe::Generated(ref vec) => vec.get(self.index).cloned(),
+            Maybe::Provided(ref iter) => iter.clone().nth(index),
+            Maybe::Generated(ref vec) => vec.get(index).cloned(),
         }
     }
 }
@@ -671,8 +671,8 @@ impl<'a> Primitive<'a> {
                     }),
                 }
             });
-                 let coloring = unimplemented!();
-                 let skinning = unimplemented!();
+        let coloring = unimplemented!();
+        let skinning = unimplemented!();
         (positioning, texturing, coloring, skinning)
     }
 }

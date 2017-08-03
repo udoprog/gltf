@@ -12,7 +12,6 @@ use std::ops;
 
 use futures::{Future, Poll};
 use std::boxed::Box;
-use std::sync::Arc;
 
 pub use image_crate::DynamicImage;
 
@@ -60,7 +59,7 @@ pub struct Async<S: import::Source> {
 #[derive(Clone, Debug)]
 pub struct Data {
     /// The resolved data.
-    item: Arc<Box<[u8]>>,
+    item: Box<[u8]>,
 
     /// The byte region the data reads from.
     region: Region,
@@ -123,7 +122,7 @@ impl Data {
     /// This method is unstable and hence subject to change.
     pub fn full(item: Box<[u8]>) -> Self {
         Data {
-            item: Arc::new(item),
+            item: item,
             region: Region::Full,
         }
     }
@@ -135,18 +134,8 @@ impl Data {
     /// This method is unstable and hence subject to change.
     pub fn view(item: Box<[u8]>, offset: usize, len: usize) -> Self {
         Data {
-            item: Arc::new(item),
+            item: item,
             region: Region::View { offset, len },
-        }
-    }
-
-    /// Consumes this `Data`, constructing a subset instead.
-    ///
-    /// If the data is already a subset then a sub-subset is created, etc.
-    pub fn subview(self, offset: usize, len: usize) -> Self {
-        Data {
-            item: self.item,
-            region: self.region.subview(offset, len),
         }
     }
 }

@@ -184,8 +184,8 @@ impl Gltf {
     /// # Panics
     ///
     /// Panics if the index is out of range.
-    pub fn buffer_data(&self, index: usize) -> import::Data {
-        self.buffer_data[index].clone()
+    pub fn buffer_data<'a>(&'a self, index: usize) -> &'a [u8] {
+        &self.buffer_data[index]
     }
 
     /// Returns preloaded image data. 
@@ -319,7 +319,16 @@ impl ops::Deref for Gltf {
 impl<'a> Iterator for Accessors<'a> {
     type Item = Accessor<'a>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|(index, json)| Accessor::new(self.gltf, index, json))
+        self.iter
+            .next()
+            .map(|(index, json)| {
+                Accessor::new(
+                    self.gltf,
+                    index,
+                    json,
+                    self.gltf.views().nth(index).unwrap(),
+                )
+            })
     }
 }
 
@@ -333,14 +342,32 @@ impl<'a> Iterator for Animations<'a> {
 impl<'a> Iterator for Buffers<'a> {
     type Item = Buffer<'a>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|(index, json)| Buffer::new(self.gltf, index, json))
+        self.iter
+            .next()
+            .map(|(index, json)| {
+                Buffer::new(
+                    self.gltf,
+                    index,
+                    json,
+                    &self.gltf.buffer_data[index],
+                )
+            })
     }
 }
 
 impl<'a> Iterator for Views<'a> {
     type Item = View<'a>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|(index, json)| View::new(self.gltf, index, json))
+        self.iter
+            .next()
+            .map(|(index, json)| {
+                View::new(
+                    self.gltf,
+                    index,
+                    json,
+                    self.gltf.buffers().nth(index).unwrap(),
+                )
+            })
     }
 }
 

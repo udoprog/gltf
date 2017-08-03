@@ -8,7 +8,7 @@
 // except according to those terms.
 
 use std::{marker, mem};
-use {buffer, extensions, import, json};
+use {buffer, extensions, json};
 
 use Gltf;
 
@@ -26,6 +26,9 @@ pub struct Accessor<'a> {
 
     /// The corresponding JSON struct.
     json: &'a json::accessor::Accessor,
+
+    /// The buffer view this accessor reads from.
+    view: buffer::View<'a>,
 }
 
 /// An `Iterator` that iterates over the members of an accessor.
@@ -40,14 +43,11 @@ pub struct Iter<'a, T> {
     /// The number of bytes to advance `ptr` by per iteration.
     stride: usize,
 
-    /// The buffer view data we're iterating over.
-    data: import::Data,
-
     /// Consumes the iterator lifetime, which is bound to the import data.
-    _consume_type: marker::PhantomData<T>,
-    
-    /// Consumes the data type we're returning at each iteration.
     _consume_lifetime: marker::PhantomData<&'a ()>,
+    
+    /// Consumes the type we're iterating over.
+    _consume_type: marker::PhantomData<T>,
 }
 
 impl<'a> Accessor<'a> {
@@ -56,11 +56,13 @@ impl<'a> Accessor<'a> {
         gltf: &'a Gltf,
         index: usize,
         json: &'a json::accessor::Accessor,
+        view: buffer::View<'a>,
     ) -> Self {
         Self {
-            gltf: gltf,
-            index: index,
-            json: json,
+            gltf,
+            index,
+            json,
+            view
         }
     }
 
@@ -87,16 +89,15 @@ impl<'a> Accessor<'a> {
         assert!(self.size() == mem::size_of::<T>());
         let count = self.count();
         let offset = self.offset() as isize;
-        let stride = self.view().stride().unwrap_or(mem::size_of::<T>());
-        let data = self.view().data();
+        let stride = self.view.stride().unwrap_or(mem::size_of::<T>());
+        let data = self.view.data();
         let ptr = data.as_ptr().offset(offset);
         Iter {
             count: count,
             ptr: ptr,
             stride: stride,
-            data: data,
-            _consume_type: marker::PhantomData,
             _consume_lifetime: marker::PhantomData,
+            _consume_type: marker::PhantomData,
         }
     }
 
@@ -107,7 +108,7 @@ impl<'a> Accessor<'a> {
 
     /// The parent buffer view this accessor reads from.
     pub fn view(&self) -> buffer::View<'a> {
-        self.gltf.views().nth(self.json.buffer_view.value()).unwrap()
+        self.view.clone()
     }
 
     /// The offset relative to the start of the parent buffer view in bytes.
