@@ -32,7 +32,7 @@ pub struct Accessor<'a> {
 }
 
 /// An `Iterator` that iterates over the members of an accessor.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Iter<'a, T> {
     /// Number of iterations left.
     count: usize,

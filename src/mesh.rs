@@ -12,7 +12,7 @@ use std::collections::hash_map;
 use std::{iter, slice};
 use {accessor, extensions, json, material};
 
-use accessor::{Accessor, DataType, Dimensions, Iter};
+use accessor::{Accessor, DataType, Dimensions};
 use Gltf;
 
 pub use json::mesh::{Mode, Semantic};
@@ -69,9 +69,12 @@ impl<T: Copy + Normalized> Normalized for [T; 4] {
     }
 }
 
+/// A type that iterates over vertex attribute data.
+pub type Iter<'a, T> = Ordered<'a, accessor::Iter<'a, T>>;
+
 /// XYZ vertex normals of type `[f32; 3]`.
 #[derive(Clone, Debug)]
-pub struct Normals<'a>(Iter<'a, [f32; 3]>);
+pub struct Normals<'a>(Ordered<'a, Maybe<'a, [f32; 3]>>);
 
 /// XYZ vertex normal displacements of type `[f32; 3]`.
 #[derive(Clone, Debug)]
@@ -88,7 +91,7 @@ pub struct PositionDisplacements<'a>(Iter<'a, [f32; 3]>);
 /// XYZW vertex tangents of type `[f32; 4]` where the `w` component is a
 /// sign value (-1 or +1) indicating the handedness of the tangent basis.
 #[derive(Clone, Debug)]
-pub struct Tangents<'a>(Iter<'a, [f32; 4]>);
+pub struct Tangents<'a>(Maybe<'a, [f32; 4]>);
 
 /// XYZ vertex tangent displacements of type `[f32; 3]`.
 #[derive(Clone, Debug)]
@@ -116,15 +119,57 @@ pub enum Colors<'a> {
     RgbaF32(Iter<'a, [f32; 4]>),
 }
 
+/// Vertex joints.
+/// Refer to the documentation on morph targets and skins for more
+/// information.
+#[derive(Clone, Debug)]
+pub enum Joints<'a> {
+    /// Joints of type `[u8; 4]`.
+    /// Refer to the documentation on morph targets and skins for more
+    /// information.
+    U8(Iter<'a, [u8; 4]>),
+    
+    /// Joints of type `[u16; 4]`.
+    /// Refer to the documentation on morph targets and skins for more
+    /// information.
+    U16(Iter<'a, [u16; 4]>),
+}
+
+/// UV texture co-ordinates.
+#[derive(Clone, Debug)]
+enum GenericTexCoords<'a> {
+    /// UV texture co-ordinates of type `[f32; 2]`.
+    F32(accessor::Iter<'a, [f32; 2]>),
+
+    /// UV texture co-ordinates of type `[u8; 2]>`.
+    U8(accessor::Iter<'a, [u8; 2]>),
+
+    /// UV texture co-ordinates of type `[u16; 2]>`.
+    U16(accessor::Iter<'a, [u16; 2]>),
+}
+
+/// UV texture co-ordinates.
+#[derive(Clone, Debug)]
+pub enum TexCoords<'a> {
+    /// UV texture co-ordinates of type `[f32; 2]`.
+    F32(Iter<'a, [f32; 2]>),
+
+    /// UV texture co-ordinates of type `[u8; 2]>`.
+    U8(Iter<'a, [u8; 2]>),
+
+    /// UV texture co-ordinates of type `[u16; 2]>`.
+    U16(Iter<'a, [u16; 2]>),
+}
+
 /// Index data.
 #[derive(Clone, Debug)]
 pub enum Indices<'a> {
     /// Index data of type U8
-    U8(Iter<'a, u8>),
+    U8(accessor::Iter<'a, u8>),
     /// Index data of type U16
-    U16(Iter<'a, u16>),
+    U16(accessor::Iter<'a, u16>),
     /// Index data of type U32
-    U32(Iter<'a, u32>),
+    U32(accessor::Iter<'a, u32>),
 }
 
 /// Defines the vertex ordering of a `Primitive`.
@@ -150,24 +195,36 @@ impl Order<'static> {
 
 /// An `Iterator` that traverses another iterator with the given `Order`.
 #[derive(Clone, Debug)]
-pub struct Ordered<'a, I> {
-    /// The iterator ordering.
-    order: Order<'a>,
+pub enum Ordered<'a, I: Clone + Iterator> {
+    /// Begin from 0, increment by one.
+    Regular {
+        /// The iterator we're reading from.
+        iter: I,
+    },
 
-    /// The index of the next iteration if the ordering is `Custom`.
-    order_index: usize,
+    /// Custom vertex order.
+    Custom {
+        /// The iterator we're reading from.
+        iter: I,
 
-    /// The internal iterator to yield items from.
-    iter: I,
+        /// The iteration order.
+        order: Cow<'a, [u32]>,
+
+        /// The index of the next order index.
+        index: usize,
+    },
 }
 
-impl<'a, I> Ordered<'a, I> {
+impl<'a, I: Clone + Iterator> Ordered<'a, I> {
     /// Constructs an `Ordered` iterator adaptor.
     fn new(order: Order<'a>, iter: I) -> Self {
-        Self {
-            order,
-            iter,
-            order_index: 0,
+        match order {
+            Order::Regular => Ordered::Regular { iter },
+            Order::Custom(order) => Ordered::Custom {
+                iter,
+                order,
+                index: 0,
+            },
         }
     }
 }
@@ -177,15 +234,17 @@ impl<'a, I> Iterator for Ordered<'a, I>
 {
     type Item = I::Item;
     fn next(&mut self) -> Option<Self::Item> {
-        match self.order {
-            Order::Regular => self.iter.next(),
-            Order::Custom(ref ordering) => {
-                let order_index = self.order_index;
-                self.order_index += 1;
-                ordering
+        match *self {
+            Ordered::Regular { ref mut iter } => iter.next(),
+            Ordered::Custom { ref iter, ref order, ref mut index } => {
+                let order_index = index.clone();
+                *index += 1;
+                order
                     .get(order_index)
                     .map(|item_index| {
-                        self.iter.clone().nth(*item_index as usize).unwrap()
+                        iter.clone()
+                            .nth(*item_index as usize)
+                            .unwrap()
                     })
             },
         }
@@ -194,42 +253,20 @@ impl<'a, I> Iterator for Ordered<'a, I>
 
 /// Intermediate type for data that is either provided or generated.
 #[derive(Clone, Debug)]
-pub enum Maybe<'a, T> {
+pub enum Maybe<'a, T: 'a> {
     /// The data was provided (and hence borrowed from an `Accessor`.)
-    Provided(Iter<'a, T>),
+    Provided(accessor::Iter<'a, T>),
 
     /// The data was generated (and hence owned by the `Primitive`.)
-    Generated(Vec<T>),
+    Generated(slice::Iter<'a, T>),
 }
 
-impl<'a, T> Maybe<'a, T> {
-    /// Returns an `Iterator` that visits every item of the `Maybe`.
-    pub fn iter(&'a self) -> MaybeIter<'a, T> {
-        MaybeIter {
-            maybe: self,
-            index: 0,
-        }
-    }
-}
-
-/// An `Iterator` that visits every item of a `Maybe`.
-#[derive(Clone, Debug)]
-pub struct MaybeIter<'a, T: 'a> {
-    /// The items we're iterating over.
-    maybe: &'a Maybe<'a, T>,
-
-    /// The index of the next iteration.
-    index: usize,
-}
-
-impl<'a, T: Copy> Iterator for MaybeIter<'a, T> {
+impl<'a, T: Copy> Iterator for Maybe<'a, T> {
     type Item = T;
     fn next(&mut self) -> Option<Self::Item> {
-        let index = self.index;
-        self.index += 1;
-        match *self.maybe {
-            Maybe::Provided(ref iter) => iter.clone().nth(index),
-            Maybe::Generated(ref vec) => vec.get(index).cloned(),
+        match *self {
+            Maybe::Provided(ref mut iter) => iter.next(),
+            Maybe::Generated(ref mut iter) => iter.next().map(|x| *x),
         }
     }
 }
@@ -244,38 +281,9 @@ impl<'a> Iterator for IndicesU32<'a> {
         match &mut self.0 {
             &mut Indices::U8(ref mut iter) => iter.next().map(|x| x as u32),
             &mut Indices::U16(ref mut iter) => iter.next().map(|x| x as u32),
-            &mut Indices::U32(ref mut iter) => iter.next().map(|x| x),
+            &mut Indices::U32(ref mut iter) => iter.next(),
         }
     }
-}
-
-/// Vertex joints.
-/// Refer to the documentation on morph targets and skins for more
-/// information.
-#[derive(Clone, Debug)]
-pub enum Joints<'a> {
-    /// Joints of type `[u8; 4]`.
-    /// Refer to the documentation on morph targets and skins for more
-    /// information.
-    U8(Iter<'a, [u8; 4]>),
-    
-    /// Joints of type `[u16; 4]`.
-    /// Refer to the documentation on morph targets and skins for more
-    /// information.
-    U16(Iter<'a, [u16; 4]>),
-}
-
-/// UV texture co-ordinates.
-#[derive(Clone, Debug)]
-pub enum TexCoords<'a> {
-    /// UV texture co-ordinates of type `[f32; 2]`.
-    F32(Iter<'a, [f32; 2]>),
-
-    /// UV texture co-ordinates of type `[u8; 2]>`.
-    U8(Iter<'a, [u8; 2]>),
-
-    /// UV texture co-ordinates of type `[u16; 2]>`.
-    U16(Iter<'a, [u16; 2]>),
 }
 
 /// An `Iterator` that coerces texture co-ordinates to `f32`s.
@@ -288,7 +296,22 @@ impl<'a> Iterator for TexCoordsF32<'a> {
         match &mut self.0 {
             &mut TexCoords::U8(ref mut i) => i.next().map(|x| x.denormalize()),
             &mut TexCoords::U16(ref mut i) => i.next().map(|x| x.denormalize()),
-            &mut TexCoords::F32(ref mut i) => i.next().map(|x| x),
+            &mut TexCoords::F32(ref mut i) => i.next(),
+        }
+    }
+}
+
+/// An `Iterator` that coerces texture co-ordinates to `f32`s.
+#[derive(Clone, Debug)]
+pub struct GenericTexCoordsF32<'a>(GenericTexCoords<'a>);
+
+impl<'a> Iterator for GenericTexCoordsF32<'a> {
+    type Item = [f32; 2];
+    fn next(&mut self) -> Option<Self::Item> {
+        match &mut self.0 {
+            &mut GenericTexCoords::U8(ref mut i) => i.next().map(|x| x.denormalize()),
+            &mut GenericTexCoords::U16(ref mut i) => i.next().map(|x| x.denormalize()),
+            &mut GenericTexCoords::F32(ref mut i) => i.next(),
         }
     }
 }
@@ -387,111 +410,9 @@ pub struct Primitives<'a>  {
     iter: iter::Enumerate<slice::Iter<'a, json::mesh::Primitive>>,
 }
 
-/// Fundamental positioning properties.
-#[derive(Clone, Debug)]
-pub struct Positioning<'a> {
-    /// XYZ vertex positions.
-    pub positions: Ordered<'a, Positions<'a>>,
-
-    /// XYZ vertex normals.
-    pub normals: Ordered<'a, MaybeIter<'a, [f32; 3]>>,
-}
-
-/// Intermediate type for positioning properties.
-#[derive(Clone, Debug)]
-struct PositioningImpl<'a> {
-    /// XYZ vertex positions.
-    positions: Positions<'a>,
-
-    /// XYZ vertex normals.
-    normals: Maybe<'a, [f32; 3]>,
-}
-
-/// Texturing properties.
-#[derive(Clone, Debug)]
-pub struct Texturing<'a> {
-    /// XYZW vertex tangents, where W is the sign component.
-    pub tangents: MaybeIter<'a, [f32; 4]>,
-
-    /// First set of UV texture co-ordinates.
-    pub tex_coords_0: Ordered<'a, TexCoordsF32<'a>>,
-
-    /// Second set of UV texture co-ordinates.
-    pub tex_coords_1: Option<Ordered<'a, TexCoordsF32<'a>>>,
-}
-
-/// Intermediate type for texturing properties.
-#[derive(Clone, Debug)]
-struct TexturingImpl<'a> {
-    /// XYZW vertex tangents, where W is the sign component.
-    pub tangents: Maybe<'a, [f32; 4]>,
-
-    /// First set of UV texture co-ordinates.
-    pub tex_coords_0: TexCoordsF32<'a>,
-
-    /// Second set of UV texture co-ordinates.
-    pub tex_coords_1: Option<TexCoordsF32<'a>>,
-}
-
-/// Vertex coloring.
-#[derive(Clone, Debug)]
-pub struct Coloring<'a> {
-    /// RGB(A) vertex colors.
-    pub colors_0: Ordered<'a, Colors<'a>>,
-}
-
-/// Intermediate type for vertex coloring properties.
-#[derive(Clone, Debug)]
-struct ColoringImpl<'a> {
-    /// RGB(A) vertex colors.
-    pub colors_0: Colors<'a>,
-}
-
-/// Vertex skinning properties.
-#[derive(Clone, Debug)]
-pub struct Skinning<'a> {
-    /// Indices of nodes that form the skin joints.
-    pub joints_0: Ordered<'a, Joints<'a>>,
-
-    /// Weights to be applied at each joint.
-    pub weights_0: Ordered<'a, Weights<'a>>,
-}
-
-/// Intermediate type for vertex skinning properties.
-#[derive(Clone, Debug)]
-struct SkinningImpl<'a> {
-    /// Indices of nodes that form the skin joints.
-    pub joints_0: Joints<'a>,
-
-    /// Weights to be applied at each joint.
-    pub weights_0: Weights<'a>,
-}
-
 /// Geometry to be rendered with the given material.
 #[derive(Clone, Debug)]
 pub struct Primitive<'a> {
-    /// Internal data.
-    inner: PrimitiveImpl<'a>,
-
-    /// The vertex ordering.
-    order: Order<'static>,
-
-    /// `POSITION` and `NORMAL`.
-    positioning: Option<PositioningImpl<'a>>,
-
-    /// `TANGENT`, `TEXCOORD_0`, and `TEXCOORD_1`.
-    texturing: Option<TexturingImpl<'a>>,
-
-    /// `COLOR_0`.
-    coloring: Option<ColoringImpl<'a>>,
-
-    /// `JOINTS_0` and `WEIGHTS_0`.
-    skinning: Option<SkinningImpl<'a>>,
-}
-
-/// Geometry to be rendered with the given material.
-#[derive(Clone, Debug)]
-pub struct PrimitiveImpl<'a> {
     /// The parent `Mesh` struct.
     mesh: &'a Mesh<'a>,
 
@@ -500,6 +421,15 @@ pub struct PrimitiveImpl<'a> {
 
     /// The corresponding JSON struct.
     json: &'a json::mesh::Primitive,
+
+    /// The vertex ordering.
+    vertex_order: Order<'static>,
+
+    /// Generated normals.
+    generated_normals: Option<Vec<[f32; 3]>>,
+
+    /// Generated tangents.
+    generated_tangents: Option<Vec<[f32; 4]>>,
 }
 
 impl<'a> Mesh<'a>  {
@@ -555,6 +485,18 @@ impl<'a> Mesh<'a>  {
     }
 }
 
+/// Returns the attribute with the given semantic value.
+fn find_accessor_with_semantic<'a>(
+    gltf: &'a Gltf,
+    json: &'a json::mesh::Primitive,
+    semantic: Semantic,
+) -> Option<accessor::Accessor<'a>> {
+    json.attributes
+        .iter()
+        .find(|&(ref key, _)| key.as_ref().unwrap() == &semantic)
+        .map(|(_, index)| gltf.accessors().nth(index.value()).unwrap())
+}
+
 impl<'a> Primitive<'a> {
     /// Constructs a `Primitive`.
     ///
@@ -575,119 +517,68 @@ impl<'a> Primitive<'a> {
     ///
     /// * Where `JOINTS_0` and `WEIGHTS_0` are provided, the primitive will contain
     ///   `Some(Skinning)`.
-    pub fn new(inner: PrimitiveImpl<'a>) -> Self {
-        let positioning = match (inner.positions(), inner.normals()) {
-             (Some(positions), Some(normals)) => {
-                 Some(PositioningImpl {
-                     positions: positions,
-                     normals: Maybe::Provided(normals.0),
-                 })
-            },
-            (Some(positions), None) => {
-                let normals: Vec<[f32; 3]> = unimplemented!(/* generate flat normals */);
-                Some(PositioningImpl {
-                    positions,
-                    normals: Maybe::Generated(normals),
-                })
-            },
-            _ => None,
-        };
-
-        let (order, texturing) = match (
-            positioning.as_ref(),
-            inner.tangents(),
-            inner.tex_coords(0),
-        ) {
-            (_, Some(tangents), Some(tex_coords_0)) => {
-                let texturing = TexturingImpl {
-                    tangents: Maybe::Provided(tangents.0),
-                    tex_coords_0: inner.tex_coords_f32(0).unwrap(),
-                    tex_coords_1: inner.tex_coords_f32(1),
-                };
-                (Order::Regular, Some(texturing))
-            },
-            (Some(positioning), None, Some(tex_coords_0)) => {
-                let (order, tangents) = unimplemented!(/* perform mikktspace */);
-                let texturing = TexturingImpl {
-                    tangents: Maybe::Generated(tangents),
-                    tex_coords_0: inner.tex_coords_f32(0).unwrap(),
-                    tex_coords_1: inner.tex_coords_f32(1),
-                };
-                (order, Some(texturing))
-            },
-            _ => (Order::Regular, None),
-        };
-
-        let coloring = inner.colors(0).map(|colors_0| ColoringImpl { colors_0 });
-
-        let skinning = match (inner.joints(0), inner.weights(0)) {
-            (Some(joints_0), Some(weights_0)) => {
-                Some(SkinningImpl {
-                    joints_0,
-                    weights_0,
-                })
-            },
-            _ => None,
-        };
-
-        Primitive {
-            inner,
-            order,
-            positioning,
-            texturing,
-            coloring,
-            skinning,
-        }
-    }
-
-    /// Splits the primitive into its four major properties.
-    pub fn split(&'a self) -> (
-        Option<Positioning<'a>>,
-        Option<Texturing<'a>>,
-        Option<Coloring<'a>>,
-        Option<Skinning<'a>>,
-    ) {
-        let order = self.order.borrow();
-        let positioning = self.positioning
-            .as_ref()
-            .map(|p| {
-                Positioning {
-                    positions: Ordered::new(order.clone(), p.positions.clone()),
-                    normals: Ordered::new(order.clone(), p.normals.iter()),
-                }
-            });
-        let texturing = self.texturing
-            .as_ref()
-            .map(|ref t| {
-                Texturing {
-                    tangents: {
-                        t.tangents.iter()
-                    },
-                    tex_coords_0: {
-                        Ordered::new(order.clone(), t.tex_coords_0.clone())
-                    },
-                    tex_coords_1: t.tex_coords_1.as_ref().map(|iter| {
-                        Ordered::new(order.clone(), iter.clone())
-                    }),
-                }
-            });
-        let coloring = unimplemented!();
-        let skinning = unimplemented!();
-        (positioning, texturing, coloring, skinning)
-    }
-}
-
-impl<'a> PrimitiveImpl<'a> {
-    /// Constructs a `PrimitiveImpl`.
     pub fn new(
         mesh: &'a Mesh<'a>,
         index: usize,
         json: &'a json::mesh::Primitive,
     ) -> Self {
-        Self {
-            mesh: mesh,
-            index: index,
-            json: json,
+        let positions = find_accessor_with_semantic(
+            mesh.gltf,
+            json,
+            Semantic::Positions,
+        ).map(|accessor| unsafe { accessor.iter::<[f32; 3]>() });
+        let normals = find_accessor_with_semantic(
+            mesh.gltf,
+            json,
+            Semantic::Normals,
+        ).map(|accessor| unsafe { accessor.iter::<[f32; 3]>() });
+        let tangents = find_accessor_with_semantic(
+            mesh.gltf,
+            json,
+            Semantic::Tangents,
+        ).map(|accessor| unsafe { accessor.iter::<[f32; 4]>() });
+        let tex_coords_0 = find_accessor_with_semantic(
+            mesh.gltf,
+            json,
+            Semantic::TexCoords(0),
+        ).map(|accessor| {
+            GenericTexCoordsF32(GenericTexCoords::from_accessor(accessor))
+        });
+        let indices = json.indices
+            .as_ref()
+            .map(|index| {
+                let accessor = mesh.gltf.accessors().nth(index.value()).unwrap();
+                IndicesU32(Indices::from_accessor(accessor))
+            });
+
+        let generated_normals = match (normals.as_ref(), positions.as_ref()) {
+            (None, Some(positions)) => {
+                let generated_normals = unimplemented!();
+                Some(generated_normals)
+            },
+            _ => None,
+        };
+
+        let (vertex_order, generated_tangents) = match (
+            tangents.as_ref(),
+            positions.as_ref(),
+            normals.as_ref(),
+            tex_coords_0.as_ref(),
+        ) {
+            (None, Some(positions), Some(normals), Some(tex_coords)) => {
+                let (order, generated_tangents) = unimplemented!();
+                (order, Some(generated_tangents))
+            },
+            _ => (Order::Regular, None),
+        };
+
+        Primitive {
+            mesh,
+            json,
+            index,
+            vertex_order,
+            generated_normals,
+            generated_tangents,
         }
     }
 
@@ -697,37 +588,45 @@ impl<'a> PrimitiveImpl<'a> {
     }
     
     /// Returns the vertex colors of the given set.
-    pub fn colors(&self, set: u32) -> Option<Colors<'a>> {
+    pub fn colors<'b>(&'b self, set: u32) -> Option<Colors<'b>> {
         self.find_accessor_with_semantic(Semantic::Colors(set))
-            .map(|accessor| Colors::from_accessor(accessor))
+            .map(|accessor| {
+                Colors::from_accessor(self.vertex_order.borrow(), accessor)
+            })
     }
 
     /// Returns the vertex texture co-ordinates of the given set.
-    pub fn tex_coords(&self, set: u32) -> Option<TexCoords<'a>> {
+    pub fn tex_coords<'b>(&'b self, set: u32) -> Option<TexCoords<'b>> {
         self.find_accessor_with_semantic(Semantic::TexCoords(set))
-            .map(|accessor| TexCoords::from_accessor(accessor))
+            .map(|accessor| {
+                TexCoords::from_accessor(self.vertex_order.borrow(), accessor)
+            })
     }
 
     /// Returns the vertex texture co-ordinates of the given set, coerced into `f32`
     /// values.
-    pub fn tex_coords_f32(&self, set: u32) -> Option<TexCoordsF32<'a>> {
+    pub fn tex_coords_f32<'b>(&'b self, set: u32) -> Option<TexCoordsF32<'b>> {
         self.tex_coords(set).map(|iter| TexCoordsF32(iter))
     }
-    
+
     /// Returns the joint indices of the given set.
-    pub fn joints(&self, set: u32) -> Option<Joints<'a>> {
+    pub fn joints<'b>(&'b self, set: u32) -> Option<Joints<'b>> {
         self.find_accessor_with_semantic(Semantic::Joints(set))
-            .map(|accessor| Joints::from_accessor(accessor))
+            .map(|accessor| {
+                Joints::from_accessor(self.vertex_order.borrow(), accessor)
+            })
     }
-    
+
     /// Returns the joint weights of the given set.
-    pub fn weights(&self, set: u32) -> Option<Weights<'a>> {
+    pub fn weights<'b>(&'b self, set: u32) -> Option<Weights<'b>> {
         self.find_accessor_with_semantic(Semantic::Weights(set))
-            .map(|accessor| Weights::from_accessor(accessor))
+            .map(|accessor| {
+                Weights::from_accessor(self.vertex_order.borrow(), accessor)
+            })
     }
 
     /// Returns the primitive indices.
-    pub fn indices(&self) -> Option<Indices<'a>> {
+    pub fn indices<'b>(&'b self) -> Option<Indices<'b>> {
         self.json.indices.as_ref().map(|index| {
             let accessor = self.mesh.gltf.accessors().nth(index.value()).unwrap();
             Indices::from_accessor(accessor)
@@ -736,32 +635,59 @@ impl<'a> PrimitiveImpl<'a> {
 
     /// Returns the vertex texture co-ordinates of the given set, coerced into `f32`
     /// values.
-    pub fn indices_u32(&self) -> Option<IndicesU32<'a>> {
+    pub fn indices_u32<'b>(&'b self) -> Option<IndicesU32<'b>> {
         self.indices().map(|iter| IndicesU32(iter))
     }
 
     /// Returns the primitive positions.
-    pub fn positions(&self) -> Option<Positions<'a>> {
+    pub fn positions<'b>(&'b self) -> Option<Positions<'b>> {
         self.find_accessor_with_semantic(Semantic::Positions)
             .map(|accessor| unsafe {
-                Positions(accessor.iter())
+                Positions(
+                    Ordered::new(
+                        self.vertex_order.borrow(),
+                        accessor.iter(),
+                    )
+                )
             })
     }
 
     /// Returns the primitive normals.
-    pub fn normals(&self) -> Option<Normals<'a>> {
-        self.find_accessor_with_semantic(Semantic::Normals)
-            .map(|accessor| unsafe {
-                Normals(accessor.iter())
-            })
+    pub fn normals<'b>(&'b self) -> Option<Normals<'b>> {
+        let vertex_order = self.vertex_order.borrow();
+        if let Some(slice) = self.generated_normals.as_ref() {
+            Some(
+                Normals(
+                    Ordered::new(
+                        vertex_order,
+                        Maybe::Generated(slice.iter()),
+                    )
+                )
+            )
+        } else if let Some(accessor) = self.find_accessor_with_semantic(Semantic::Normals) {
+            Some(
+                Normals(
+                    Ordered::new(
+                        vertex_order,
+                        Maybe::Provided(unsafe { accessor.iter() }),
+                    )
+                )
+            )
+        } else {
+            None
+        }
     }
 
     /// Returns the primitive tangents.
-    pub fn tangents(&self) -> Option<Tangents<'a>> {
-        self.find_accessor_with_semantic(Semantic::Tangents)
-            .map(|accessor| unsafe {
-                Tangents(accessor.iter())
-            })
+    pub fn tangents<'b>(&'b self) -> Option<Tangents<'b>> {
+        let vertex_order = self.vertex_order.borrow();
+        if let Some(slice) = self.generated_tangents.as_ref() {
+            Some(Tangents(Maybe::Generated(slice.iter())))
+        } else if let Some(accessor) = self.find_accessor_with_semantic(Semantic::Tangents) {
+            Some(Tangents(Maybe::Provided(unsafe { accessor.iter() })))
+        } else {
+            None
+        }
     }
 
     /// Returns the attribute with the given semantic value.
@@ -803,26 +729,26 @@ impl<'a> PrimitiveImpl<'a> {
 }
 
 impl<'a> Colors<'a> {
-    fn from_accessor(accessor: Accessor<'a>) -> Colors<'a> {
+    fn from_accessor(order: Order<'a>, accessor: Accessor<'a>) -> Colors<'a> {
         unsafe {
             match (accessor.dimensions(), accessor.data_type()) {
                 (Dimensions::Vec3, DataType::U8) => {
-                    Colors::RgbU8(accessor.iter())
+                    Colors::RgbU8(Ordered::new(order, accessor.iter()))
                 },
                 (Dimensions::Vec4, DataType::U8) => {
-                    Colors::RgbaU8(accessor.iter())
+                    Colors::RgbaU8(Ordered::new(order, accessor.iter()))
                 },
                 (Dimensions::Vec3, DataType::U16) => {
-                    Colors::RgbU16(accessor.iter())
+                    Colors::RgbU16(Ordered::new(order, accessor.iter()))
                 },
                 (Dimensions::Vec4, DataType::U16) => {
-                    Colors::RgbaU16(accessor.iter())
+                    Colors::RgbaU16(Ordered::new(order, accessor.iter()))
                 },
                 (Dimensions::Vec3, DataType::F32) => {
-                    Colors::RgbF32(accessor.iter())
+                    Colors::RgbF32(Ordered::new(order, accessor.iter()))
                 },
                 (Dimensions::Vec4, DataType::F32) => {
-                    Colors::RgbaF32(accessor.iter())
+                    Colors::RgbaF32(Ordered::new(order, accessor.iter()))
                 },
                 _ => unreachable!(),
             }
@@ -831,12 +757,25 @@ impl<'a> Colors<'a> {
 }
 
 impl<'a> TexCoords<'a> {
-    fn from_accessor(accessor: Accessor<'a>) -> TexCoords<'a> {
+    fn from_accessor(order: Order<'a>, accessor: Accessor<'a>) -> TexCoords<'a> {
         unsafe {
             match accessor.data_type() {
-                DataType::U8 => TexCoords::U8(accessor.iter()),
-                DataType::U16 => TexCoords::U16(accessor.iter()),
-                DataType::F32 => TexCoords::F32(accessor.iter()),
+                DataType::U8 => TexCoords::U8(Ordered::new(order, accessor.iter())),
+                DataType::U16 => TexCoords::U16(Ordered::new(order, accessor.iter())),
+                DataType::F32 => TexCoords::F32(Ordered::new(order, accessor.iter())),
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
+impl<'a> GenericTexCoords<'a> {
+    fn from_accessor(accessor: Accessor<'a>) -> GenericTexCoords<'a> {
+        unsafe {
+            match accessor.data_type() {
+                DataType::U8 => GenericTexCoords::U8(accessor.iter()),
+                DataType::U16 => GenericTexCoords::U16(accessor.iter()),
+                DataType::F32 => GenericTexCoords::F32(accessor.iter()),
                 _ => unreachable!(),
             }
         }
@@ -857,11 +796,11 @@ impl<'a> Indices<'a> {
 }
 
 impl<'a> Joints<'a> {
-    fn from_accessor(accessor: Accessor<'a>) -> Joints<'a> {
+    fn from_accessor(order: Order<'a>, accessor: Accessor<'a>) -> Joints<'a> {
         unsafe {
             match accessor.data_type() {
-                DataType::U8 => Joints::U8(accessor.iter()),
-                DataType::U16 => Joints::U16(accessor.iter()),
+                DataType::U8 => Joints::U8(Ordered::new(order, accessor.iter())),
+                DataType::U16 => Joints::U16(Ordered::new(order, accessor.iter())),
                 _ => unreachable!(),
             }
         }
@@ -869,12 +808,12 @@ impl<'a> Joints<'a> {
 }
 
 impl<'a> Weights<'a> {
-    fn from_accessor(accessor: Accessor<'a>) -> Weights<'a> {
+    fn from_accessor(order: Order<'a>, accessor: Accessor<'a>) -> Weights<'a> {
         unsafe {
             match accessor.data_type() {
-                DataType::U8 => Weights::U8(accessor.iter()),
-                DataType::U16 => Weights::U16(accessor.iter()),
-                DataType::F32 => Weights::F32(accessor.iter()),
+                DataType::U8 => Weights::U8(Ordered::new(order, accessor.iter())),
+                DataType::U16 => Weights::U16(Ordered::new(order, accessor.iter())),
+                DataType::F32 => Weights::F32(Ordered::new(order, accessor.iter())),
                 _ => unreachable!(),
             }
         }
@@ -928,8 +867,6 @@ impl<'a> Iterator for Primitives<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         self.iter
             .next()
-            .map(|(index, json)| {
-                Primitive::new(PrimitiveImpl::new(self.mesh, index, json))
-            })
+            .map(|(index, json)| Primitive::new(self.mesh, index, json))
     }
 }
