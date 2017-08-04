@@ -326,7 +326,7 @@ impl<'a> Iterator for Accessors<'a> {
                     self.gltf,
                     index,
                     json,
-                    self.gltf.views().nth(index).unwrap(),
+                    self.gltf.views().nth(json.buffer_view.value()).unwrap(),
                 )
             })
     }
@@ -365,7 +365,7 @@ impl<'a> Iterator for Views<'a> {
                     self.gltf,
                     index,
                     json,
-                    self.gltf.buffers().nth(index).unwrap(),
+                    self.gltf.buffers().nth(json.buffer.value()).unwrap(),
                 )
             })
     }
